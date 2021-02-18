@@ -130,8 +130,7 @@ Topics.addThumb = async (req, res) => {
 		await Promise.all(files.map(async (fileObj) => {
 			await topics.thumbs.associate({
 				id: req.params.tid,
-				path: fileObj.path || null,
-				url: fileObj.url,
+				path: fileObj.path || fileObj.url,
 			});
 		}));
 	}
@@ -165,6 +164,25 @@ Topics.deleteThumb = async (req, res) => {
 
 	await topics.thumbs.delete(req.params.tid, req.body.path);
 	helpers.formatApiResponse(200, res, await topics.thumbs.get(req.params.tid));
+};
+
+Topics.reorderThumbs = async (req, res) => {
+	await checkThumbPrivileges({ tid: req.params.tid, uid: req.user.uid, res });
+	if (res.headersSent) {
+		return;
+	}
+
+	const exists = await topics.thumbs.exists(req.params.tid, req.body.path);
+	if (!exists) {
+		return helpers.formatApiResponse(404, res);
+	}
+
+	await topics.thumbs.associate({
+		id: req.params.tid,
+		path: req.body.path,
+		score: req.body.order,
+	});
+	helpers.formatApiResponse(200, res);
 };
 
 async function checkThumbPrivileges({ tid, uid, res }) {

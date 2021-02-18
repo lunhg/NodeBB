@@ -13,11 +13,15 @@ const cache = require('../cache');
 module.exports = function (Categories) {
 	Categories.create = async function (data) {
 		const parentCid = data.parentCid ? data.parentCid : 0;
-		const cid = await db.incrObjectField('global', 'nextCid');
+		const [cid, firstChild] = await Promise.all([
+			db.incrObjectField('global', 'nextCid'),
+			db.getSortedSetRangeWithScores(`cid:${parentCid}:children`, 0, 0),
+		]);
 
 		data.name = String(data.name || `Category ${cid}`);
 		const slug = `${cid}/${slugify(data.name)}`;
-		const order = data.order || cid;	// If no order provided, place it at the end
+		const smallestOrder = firstChild.length ? firstChild[0].score - 1 : 1;
+		const order = data.order || smallestOrder;	// If no order provided, place it at the top
 		const colours = Categories.assignColours();
 
 		let category = {
@@ -83,7 +87,11 @@ module.exports = function (Categories) {
 		await privileges.categories.give(modPrivileges, category.cid, ['administrators', 'Global Moderators']);
 		await privileges.categories.give(['groups:find', 'groups:read', 'groups:topics:read'], category.cid, ['guests', 'spiders']);
 
-		cache.del(['categories:cid', `cid:${parentCid}:children`]);
+		cache.del([
+			'categories:cid',
+			`cid:${parentCid}:children`,
+			`cid:${parentCid}:children:all`,
+		]);
 		if (data.cloneFromCid && parseInt(data.cloneFromCid, 10)) {
 			category = await Categories.copySettingsFrom(data.cloneFromCid, category.cid, !data.parentCid);
 		}
@@ -137,7 +145,12 @@ module.exports = function (Categories) {
 		if (copyParent && newParent !== parseInt(toCid, 10)) {
 			await db.sortedSetRemove(`cid:${oldParent}:children`, toCid);
 			await db.sortedSetAdd(`cid:${newParent}:children`, source.order, toCid);
-			cache.del([`cid:${oldParent}:children`, `cid:${newParent}:children`]);
+			cache.del([
+				`cid:${oldParent}:children`,
+				`cid:${oldParent}:children:all`,
+				`cid:${newParent}:children`,
+				`cid:${newParent}:children:all`,
+			]);
 		}
 
 		destination.description = source.description;

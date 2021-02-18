@@ -80,11 +80,11 @@ describe('Topic thumbs', () => {
 
 		// Touch a couple files and associate it to a topic
 		createFiles();
-		await db.sortedSetAdd(`topic:${topicObj.topicData.tid}:thumbs`, 0, `/${relativeThumbPaths[0]}`);
+		await db.sortedSetAdd(`topic:${topicObj.topicData.tid}:thumbs`, 0, `${relativeThumbPaths[0]}`);
 	});
 
 	it('should return bool for whether a thumb exists', async () => {
-		const exists = await topics.thumbs.exists(topicObj.topicData.tid, `/${relativeThumbPaths[0]}`);
+		const exists = await topics.thumbs.exists(topicObj.topicData.tid, `${relativeThumbPaths[0]}`);
 		assert.strictEqual(exists, true);
 	});
 
@@ -141,6 +141,7 @@ describe('Topic thumbs', () => {
 			await topics.thumbs.associate({
 				id: uuid,
 				path: relativeThumbPaths[1],
+				score: 5,
 			});
 
 			const exists = await db.isSortedSetMember(`draft:${uuid}:thumbs`, relativeThumbPaths[1]);
@@ -155,6 +156,41 @@ describe('Topic thumbs', () => {
 
 			const exists = await db.isSortedSetMember(`topic:2:thumbs`, relativeThumbPaths[2]);
 			assert(exists);
+		});
+
+		it('should have a score equal to the number of thumbs prior to addition', async () => {
+			const scores = await db.sortedSetScores('topic:2:thumbs', [relativeThumbPaths[0], relativeThumbPaths[2]]);
+			assert.deepStrictEqual(scores, [0, 1]);
+		});
+
+		it('should update the relevant topic hash with the number of thumbnails', async () => {
+			const numThumbs = await topics.getTopicField(2, 'numThumbs');
+			assert.strictEqual(parseInt(numThumbs, 10), 2);
+		});
+
+		it('should successfully associate a thumb with a topic even if it already contains that thumbnail (updates score)', async () => {
+			await topics.thumbs.associate({
+				id: tid,
+				path: relativeThumbPaths[0],
+			});
+
+			const score = await db.sortedSetScore(`topic:2:thumbs`, relativeThumbPaths[0]);
+
+			assert(isFinite(score));	// exists in set
+			assert.strictEqual(score, 2);
+		});
+
+		it('should update the score to be passed in as the third argument', async () => {
+			await topics.thumbs.associate({
+				id: tid,
+				path: relativeThumbPaths[0],
+				score: 0,
+			});
+
+			const score = await db.sortedSetScore(`topic:2:thumbs`, relativeThumbPaths[0]);
+
+			assert(isFinite(score));	// exists in set
+			assert.strictEqual(score, 0);
 		});
 
 		it('should associate the thumbnail with that topic\'s main pid\'s uploads', async () => {

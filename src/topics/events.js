@@ -2,6 +2,7 @@
 
 const db = require('../database');
 const user = require('../user');
+const posts = require('../posts');
 const plugins = require('../plugins');
 
 const Events = module.exports;
@@ -41,20 +42,20 @@ Events._types = {
 		icon: 'fa-trash-o',
 		text: '[[topic:restored-by]]',
 	},
+	'post-queue': {
+		icon: 'fa-history',
+		text: '[[topic:queued-by]]',
+		href: '/post-queue',
+	},
 };
-Events._ready = false;
 
 Events.init = async () => {
-	if (!Events._ready) {
-		// Allow plugins to define additional topic event types
-		const { types } = await plugins.hooks.fire('filter:topicEvents.init', { types: Events._types });
-		Events._types = types;
-		Events._ready = true;
-	}
+	// Allow plugins to define additional topic event types
+	const { types } = await plugins.hooks.fire('filter:topicEvents.init', { types: Events._types });
+	Events._types = types;
 };
 
-Events.get = async (tid) => {
-	await Events.init();
+Events.get = async (tid, uid) => {
 	const topics = require('.');
 
 	if (!await topics.exists(tid)) {
@@ -66,7 +67,7 @@ Events.get = async (tid) => {
 	const timestamps = eventIds.map(obj => obj.score);
 	eventIds = eventIds.map(obj => obj.value);
 	let events = await db.getObjects(keys);
-	events = await modifyEvent({ eventIds, timestamps, events });
+	events = await modifyEvent({ tid, uid, eventIds, timestamps, events });
 
 	return events;
 };
@@ -82,7 +83,21 @@ async function getUserInfo(uids) {
 	return userMap;
 }
 
-async function modifyEvent({ eventIds, timestamps, events }) {
+async function modifyEvent({ tid, uid, eventIds, timestamps, events }) {
+	// Add posts from post queue
+	const isPrivileged = await user.isPrivileged(uid);
+	if (isPrivileged) {
+		const queuedPosts = await posts.getQueuedPosts({ tid }, { metadata: false });
+		Object.assign(events, queuedPosts.map(item => ({
+			type: 'post-queue',
+			timestamp: item.data.timestamp || Date.now(),
+			uid: item.data.uid,
+		})));
+		queuedPosts.forEach((item) => {
+			timestamps.push(item.data.timestamp || Date.now());
+		});
+	}
+
 	const users = await getUserInfo(events.map(event => event.uid).filter(Boolean));
 
 	// Remove events whose types no longer exist (e.g. plugin uninstalled)
@@ -100,11 +115,13 @@ async function modifyEvent({ eventIds, timestamps, events }) {
 		Object.assign(event, Events._types[event.type]);
 	});
 
+	// Sort events
+	events.sort((a, b) => a.timestamp - b.timestamp);
+
 	return events;
 }
 
 Events.log = async (tid, payload) => {
-	await Events.init();
 	const topics = require('.');
 	const { type } = payload;
 	const now = Date.now();
