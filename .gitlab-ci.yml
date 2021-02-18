@@ -1,0 +1,37 @@
+variables:
+  DOCKER_HOST: tcp://docker:2375/
+  DOCKER_DRIVER: overlay2
+ 
+image:
+  name: docker/compose:alpine-1.28.2
+
+services:
+  - docker:dind
+
+stages:
+  - build
+  - test
+
+before_script:
+  - apk update
+  - apk add --no-cache wget
+  - docker version
+  - docker-compose version
+
+build:
+  stage: build 
+  script:
+    - docker-compose build
+    - mkdir image
+    - docker save nodebb > image/nodebb.tar
+  artifacts:
+    paths:
+      - image
+
+test:
+  stage: test
+  script:
+    - docker load -i image/nodebb.tar
+    - docker run --name nodebb -d nodebb
+    - docker exec nodebb sh -c './nodebb start'
+    - docker exec nodebb sh -c './nodebb stop'

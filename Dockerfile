@@ -1,22 +1,17 @@
-FROM node:lts
+FROM node:lts-alpine
 
-RUN mkdir -p /usr/src/app
-WORKDIR /usr/src/app
+RUN mkdir -p /var/www
+WORKDIR /var/www
 
-ARG NODE_ENV
-ENV NODE_ENV $NODE_ENV
+RUN apk update && apk add --no-cache git && rm -rf /var/cache/apk/*
 
-COPY install/package.json /usr/src/app/package.json
+COPY install/package.json /var/www/package.json
 
-RUN npm install --only=prod && \
+RUN npm install --only=$NODE_ENV && \
     npm cache clean --force
     
-COPY . /usr/src/app
-
-ENV NODE_ENV=production \
-    daemon=false \
-    silent=false
+COPY . /var/www
 
 EXPOSE 4567
 
-CMD node ./nodebb build ;  node ./nodebb start
+CMD node ./nodebb build && node ./nodebb start
